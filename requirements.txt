@@ -1,0 +1,54 @@
+# ===== Core Framework =====
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+python-multipart>=0.0.20
+
+# ===== Database =====
+sqlalchemy>=2.0.36
+aiosqlite>=0.20.0
+alembic>=1.14.0
+
+# ===== LangChain =====
+langchain>=0.3.0
+langchain-community>=0.3.0
+langchain-huggingface>=0.1.0
+
+# ===== Embeddings =====
+sentence-transformers>=3.0.0
+
+# ===== Vector Store =====
+faiss-cpu>=1.9.0
+
+# ===== LLM Inference (CPU-optimized) =====
+llama-cpp-python>=0.3.0
+
+# ===== Streamlit Frontend =====
+streamlit>=1.41.0
+
+# ===== Authentication & Security =====
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+cryptography>=44.0.0
+
+# ===== Configuration =====
+pydantic-settings>=2.7.0
+python-dotenv>=1.0.0
+
+# ===== Document Loaders =====
+pypdf>=5.0.0
+pdfplumber>=0.11.0
+python-docx>=1.1.0
+openpyxl>=3.1.0
+python-pptx>=1.0.0
+pandas>=2.2.0
+extract-msg>=0.50.0
+
+# ===== Image OCR =====
+pytesseract>=0.3.13
+Pillow>=11.0.0
+
+# ===== Utilities =====
+numpy>=1.26.0
+tqdm>=4.67.0
+aiofiles>=24.0.0
+httpx>=0.28.0
