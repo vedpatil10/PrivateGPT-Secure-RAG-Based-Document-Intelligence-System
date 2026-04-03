@@ -1,11 +1,11 @@
 """
-LLM Service — swappable LLM providers (llama-cpp-python, Ollama).
-Optimized for 8GB RAM CPU-only inference using GGUF quantized models.
+Swappable LLM providers for llama.cpp, Ollama, and HuggingFace Transformers.
 """
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional, Generator
+from threading import Thread
+from typing import Generator, Optional
 
 from config.settings import get_settings
 
@@ -18,28 +18,22 @@ class BaseLLMProvider(ABC):
     @abstractmethod
     def load(self):
         """Load/initialize the model."""
-        pass
 
     @abstractmethod
     def generate(self, prompt: str, max_tokens: int = 512, temperature: float = 0.1) -> str:
         """Generate a complete response."""
-        pass
 
     @abstractmethod
     def stream(self, prompt: str, max_tokens: int = 512, temperature: float = 0.1) -> Generator[str, None, None]:
         """Stream response tokens one at a time."""
-        pass
 
     @abstractmethod
     def is_loaded(self) -> bool:
-        pass
+        """Return whether the provider is initialized."""
 
 
 class LlamaCppProvider(BaseLLMProvider):
-    """
-    LLM provider using llama-cpp-python for GGUF model inference.
-    Runs entirely on CPU, optimized for 8GB RAM systems.
-    """
+    """GGUF inference through llama-cpp-python."""
 
     def __init__(self):
         self._model = None
@@ -50,12 +44,9 @@ class LlamaCppProvider(BaseLLMProvider):
         self.n_gpu_layers = settings.llm_n_gpu_layers
 
     def load(self):
-        """Load the GGUF model."""
         from llama_cpp import Llama
 
-        logger.info(f"Loading GGUF model: {self.model_path}")
-        logger.info(f"Context: {self.n_ctx}, Threads: {self.n_threads}, GPU layers: {self.n_gpu_layers}")
-
+        logger.info("Loading llama.cpp model from %s", self.model_path)
         self._model = Llama(
             model_path=self.model_path,
             n_ctx=self.n_ctx,
@@ -64,10 +55,7 @@ class LlamaCppProvider(BaseLLMProvider):
             verbose=False,
         )
 
-        logger.info("GGUF model loaded successfully")
-
     def generate(self, prompt: str, max_tokens: int = 512, temperature: float = 0.1) -> str:
-        """Generate a complete response."""
         if not self.is_loaded():
             self.load()
 
@@ -79,11 +67,9 @@ class LlamaCppProvider(BaseLLMProvider):
             repeat_penalty=1.1,
             stop=["</s>", "\n\nHuman:", "\n\nUser:", "[/INST]"],
         )
-
         return response["choices"][0]["text"].strip()
 
     def stream(self, prompt: str, max_tokens: int = 512, temperature: float = 0.1) -> Generator[str, None, None]:
-        """Stream response tokens."""
         if not self.is_loaded():
             self.load()
 
@@ -96,7 +82,6 @@ class LlamaCppProvider(BaseLLMProvider):
             stop=["</s>", "\n\nHuman:", "\n\nUser:", "[/INST]"],
             stream=True,
         )
-
         for chunk in stream:
             token = chunk["choices"][0]["text"]
             if token:
@@ -107,10 +92,7 @@ class LlamaCppProvider(BaseLLMProvider):
 
 
 class OllamaProvider(BaseLLMProvider):
-    """
-    LLM provider using Ollama for model serving.
-    Ollama manages model downloads and inference.
-    """
+    """Ollama-backed inference."""
 
     def __init__(self):
         self._loaded = False
@@ -119,40 +101,25 @@ class OllamaProvider(BaseLLMProvider):
         self.model_name = settings.ollama_model
 
     def load(self):
-        """Verify Ollama connection and model availability."""
         import httpx
 
-        try:
-            response = httpx.get(f"{self.base_url}/api/tags", timeout=10)
-            response.raise_for_status()
-            models = response.json().get("models", [])
-            model_names = [m["name"].split(":")[0] for m in models]
+        response = httpx.get(f"{self.base_url}/api/tags", timeout=10)
+        response.raise_for_status()
+        models = response.json().get("models", [])
+        model_names = [m["name"].split(":")[0] for m in models]
 
-            if self.model_name not in model_names:
-                logger.warning(
-                    f"Model '{self.model_name}' not found in Ollama. "
-                    f"Available: {model_names}. Pulling model..."
-                )
-                # Attempt to pull the model
-                pull_resp = httpx.post(
-                    f"{self.base_url}/api/pull",
-                    json={"name": self.model_name},
-                    timeout=600,
-                )
-                pull_resp.raise_for_status()
-
-            self._loaded = True
-            logger.info(f"Ollama connected. Model: {self.model_name}")
-
-        except Exception as e:
-            logger.error(f"Ollama connection failed: {e}")
-            raise RuntimeError(
-                f"Cannot connect to Ollama at {self.base_url}. "
-                f"Make sure Ollama is running: https://ollama.ai"
+        if self.model_name not in model_names:
+            logger.info("Pulling missing Ollama model %s", self.model_name)
+            pull_resp = httpx.post(
+                f"{self.base_url}/api/pull",
+                json={"name": self.model_name},
+                timeout=600,
             )
+            pull_resp.raise_for_status()
+
+        self._loaded = True
 
     def generate(self, prompt: str, max_tokens: int = 512, temperature: float = 0.1) -> str:
-        """Generate using Ollama API."""
         if not self.is_loaded():
             self.load()
 
@@ -177,11 +144,11 @@ class OllamaProvider(BaseLLMProvider):
         return response.json()["response"].strip()
 
     def stream(self, prompt: str, max_tokens: int = 512, temperature: float = 0.1) -> Generator[str, None, None]:
-        """Stream using Ollama API."""
         if not self.is_loaded():
             self.load()
 
         import httpx
+        import json
 
         with httpx.stream(
             "POST",
@@ -199,32 +166,117 @@ class OllamaProvider(BaseLLMProvider):
             },
             timeout=120,
         ) as response:
-            import json
             for line in response.iter_lines():
-                if line:
-                    data = json.loads(line)
-                    token = data.get("response", "")
-                    if token:
-                        yield token
-                    if data.get("done"):
-                        break
+                if not line:
+                    continue
+                data = json.loads(line)
+                token = data.get("response", "")
+                if token:
+                    yield token
+                if data.get("done"):
+                    break
 
     def is_loaded(self) -> bool:
         return self._loaded
 
 
-# ── Provider Registry ────────────────────────────────────────────
+class HuggingFaceProvider(BaseLLMProvider):
+    """Transformers-based local inference with optional quantization."""
+
+    def __init__(self):
+        self._model = None
+        self._tokenizer = None
+        self._pipeline = None
+        settings = get_settings()
+        self.model_id = settings.hf_model_id
+        self.auth_token = settings.hf_auth_token
+        self.device_map = settings.hf_device_map
+        self.load_in_4bit = settings.hf_load_in_4bit
+        self.load_in_8bit = settings.hf_load_in_8bit
+        self.trust_remote_code = settings.hf_trust_remote_code
+
+    def load(self):
+        from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+
+        logger.info("Loading HuggingFace model %s", self.model_id)
+
+        model_kwargs = {"device_map": self.device_map, "trust_remote_code": self.trust_remote_code}
+        if self.load_in_4bit:
+            model_kwargs["load_in_4bit"] = True
+        elif self.load_in_8bit:
+            model_kwargs["load_in_8bit"] = True
+
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            self.model_id,
+            token=self.auth_token,
+            trust_remote_code=self.trust_remote_code,
+        )
+        self._model = AutoModelForCausalLM.from_pretrained(
+            self.model_id,
+            token=self.auth_token,
+            **model_kwargs,
+        )
+        self._pipeline = pipeline(
+            "text-generation",
+            model=self._model,
+            tokenizer=self._tokenizer,
+        )
+
+    def generate(self, prompt: str, max_tokens: int = 512, temperature: float = 0.1) -> str:
+        if not self.is_loaded():
+            self.load()
+
+        outputs = self._pipeline(
+            prompt,
+            max_new_tokens=max_tokens,
+            temperature=temperature,
+            do_sample=temperature > 0,
+            top_p=0.9,
+            return_full_text=False,
+        )
+        return outputs[0]["generated_text"].strip()
+
+    def stream(self, prompt: str, max_tokens: int = 512, temperature: float = 0.1) -> Generator[str, None, None]:
+        if not self.is_loaded():
+            self.load()
+
+        from transformers import TextIteratorStreamer
+
+        streamer = TextIteratorStreamer(self._tokenizer, skip_prompt=True, skip_special_tokens=True)
+        inputs = self._tokenizer(prompt, return_tensors="pt")
+        inputs = {key: value.to(self._model.device) for key, value in inputs.items()}
+
+        generation_kwargs = {
+            **inputs,
+            "streamer": streamer,
+            "max_new_tokens": max_tokens,
+            "temperature": temperature,
+            "do_sample": temperature > 0,
+            "top_p": 0.9,
+        }
+
+        worker = Thread(target=self._model.generate, kwargs=generation_kwargs, daemon=True)
+        worker.start()
+
+        for token in streamer:
+            if token:
+                yield token
+
+    def is_loaded(self) -> bool:
+        return self._pipeline is not None
+
 
 _PROVIDERS = {
     "llama_cpp": LlamaCppProvider,
     "ollama": OllamaProvider,
+    "huggingface": HuggingFaceProvider,
 }
 
 _instance: Optional[BaseLLMProvider] = None
 
 
 def get_llm_service() -> BaseLLMProvider:
-    """Get or create the LLM provider based on settings."""
+    """Get or create the configured LLM provider."""
     global _instance
     if _instance is None:
         settings = get_settings()
@@ -238,11 +290,11 @@ def get_llm_service() -> BaseLLMProvider:
     return _instance
 
 
-def swap_llm_provider(provider_name: str, **kwargs):
+def swap_llm_provider(provider_name: str, **_kwargs):
     """Hot-swap to a different LLM provider."""
     global _instance
     provider_class = _PROVIDERS.get(provider_name)
     if not provider_class:
         raise ValueError(f"Unknown provider: {provider_name}")
     _instance = provider_class()
-    logger.info(f"LLM provider swapped to: {provider_name}")
+    logger.info("LLM provider swapped to %s", provider_name)

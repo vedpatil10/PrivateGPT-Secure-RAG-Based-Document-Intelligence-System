@@ -37,13 +37,21 @@ class Settings(BaseSettings):
     rate_limit_requests_per_minute: int = 120
 
     # ── LLM Configuration (CPU-optimized) ────────────────────────
-    llm_provider: str = "llama_cpp"  # llama_cpp | ollama
+    llm_provider: str = "llama_cpp"  # llama_cpp | ollama | huggingface
     llm_model_path: str = str(BASE_DIR / "models" / "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf")
     llm_context_length: int = 2048
     llm_max_tokens: int = 512
     llm_temperature: float = 0.1
     llm_n_threads: int = 4
     llm_n_gpu_layers: int = 0  # 0 = pure CPU
+
+    # ── HuggingFace Transformers Provider ────────────────────────
+    hf_model_id: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    hf_auth_token: Optional[str] = None
+    hf_device_map: str = "auto"
+    hf_load_in_4bit: bool = False
+    hf_load_in_8bit: bool = False
+    hf_trust_remote_code: bool = False
 
     # ── Ollama (alternative provider) ────────────────────────────
     ollama_base_url: str = "http://localhost:11434"
