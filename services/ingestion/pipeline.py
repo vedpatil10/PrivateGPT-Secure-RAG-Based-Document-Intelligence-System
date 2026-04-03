@@ -48,28 +48,47 @@ class IngestionPipeline:
         self.vector_store = vector_store
         self._processing_queue: asyncio.Queue = asyncio.Queue()
         self._is_running = False
+        self._worker_task: Optional[asyncio.Task] = None
 
     async def start_background_worker(self):
         """Start the background ingestion worker."""
         if self._is_running:
             return
         self._is_running = True
-        asyncio.create_task(self._worker_loop())
+        if get_settings().recover_stale_documents_on_startup:
+            await self.requeue_pending_documents()
+        self._worker_task = asyncio.create_task(self._worker_loop())
         logger.info("Ingestion background worker started")
 
     async def _worker_loop(self):
         """Continuously process queued documents."""
+        poll_interval = get_settings().ingestion_poll_interval_seconds
         while self._is_running:
             try:
-                task = await asyncio.wait_for(
-                    self._processing_queue.get(),
-                    timeout=5.0,
-                )
+                task = await self._get_next_task(timeout=poll_interval)
+                if task is None:
+                    continue
                 await self._process_document_task(task)
-            except asyncio.TimeoutError:
-                continue
             except Exception as e:
                 logger.error(f"Worker error: {e}")
+
+    async def stop_background_worker(self):
+        """Stop the background worker cleanly."""
+        self._is_running = False
+        if self._worker_task:
+            self._worker_task.cancel()
+            try:
+                await self._worker_task
+            except asyncio.CancelledError:
+                pass
+            self._worker_task = None
+
+    async def _get_next_task(self, timeout: float) -> Optional[dict]:
+        """Prefer in-memory work, then fall back to durable DB-backed queued documents."""
+        try:
+            return await asyncio.wait_for(self._processing_queue.get(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return await self._claim_next_queued_document()
 
     async def queue_document(
         self,
@@ -275,6 +294,10 @@ class IngestionPipeline:
         from models.database import async_session_factory
 
         async with async_session_factory() as db:
+            if not await self._claim_document_for_processing(db, task["doc_id"]):
+                logger.info("Skipping task for %s because it is already claimed", task["doc_id"])
+                return
+
             await self.process_document_sync(
                 file_path=task["file_path"],
                 original_filename=task["original_filename"],
@@ -284,6 +307,62 @@ class IngestionPipeline:
                 access_level=task.get("access_level", "public"),
                 db=db,
             )
+
+    async def _claim_next_queued_document(self) -> Optional[dict]:
+        """Fetch the next queued document from the database so work survives restarts."""
+        from models.database import async_session_factory
+
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(Document)
+                .where(Document.status == DocumentStatus.QUEUED)
+                .order_by(Document.created_at.asc())
+                .limit(1)
+            )
+            document = result.scalar_one_or_none()
+            if document is None:
+                return None
+
+            claimed = await self._claim_document_for_processing(db, document.id)
+            if not claimed:
+                return None
+
+            return {
+                "doc_id": document.id,
+                "file_path": document.filename,
+                "original_filename": document.original_filename,
+                "org_id": document.org_id,
+                "user_id": document.uploaded_by,
+                "access_level": document.access_level.value,
+            }
+
+    async def _claim_document_for_processing(self, db: AsyncSession, doc_id: str) -> bool:
+        """Atomically transition a queued/error document to processing."""
+        result = await db.execute(
+            update(Document)
+            .where(
+                Document.id == doc_id,
+                Document.status.in_([DocumentStatus.QUEUED, DocumentStatus.ERROR]),
+            )
+            .values(status=DocumentStatus.PROCESSING, error_message=None)
+        )
+        await db.commit()
+        return (result.rowcount or 0) > 0
+
+    async def requeue_pending_documents(self):
+        """Move stranded processing rows back to queued so they can be retried after restarts."""
+        from models.database import async_session_factory
+
+        async with async_session_factory() as db:
+            await db.execute(
+                update(Document)
+                .where(Document.status == DocumentStatus.PROCESSING)
+                .values(
+                    status=DocumentStatus.QUEUED,
+                    error_message="Recovered after service restart before indexing completed.",
+                )
+            )
+            await db.commit()
 
     async def delete_document(
         self,

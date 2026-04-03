@@ -80,7 +80,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 export function login(email: string, password: string) {
-  return request<TokenResponse>("/auth/login", {
+  return request<TokenResponse>("/api/auth/login", {
     method: "POST",
     body: { email, password },
   });
@@ -92,22 +92,22 @@ export function signup(payload: {
   email: string;
   password: string;
 }) {
-  return request<TokenResponse>("/auth/register", {
+  return request<TokenResponse>("/api/auth/register", {
     method: "POST",
     body: payload,
   });
 }
 
 export function getCurrentUser(token: string) {
-  return request<User>("/auth/me", { token });
+  return request<User>("/api/auth/me", { token });
 }
 
 export function listDocuments(token: string) {
-  return request<{ documents: DocumentItem[]; total: number }>("/documents/", { token });
+  return request<{ documents: DocumentItem[]; total: number }>("/api/documents/", { token });
 }
 
 export function askQuestion(token: string, question: string, conversationId?: string | null) {
-  return request<QueryResponse>("/query/", {
+  return request<QueryResponse>("/api/query/", {
     method: "POST",
     token,
     body: {
@@ -123,7 +123,7 @@ export function uploadDocument(token: string, file: File, accessLevel = "public"
   formData.append("file", file);
   formData.append("access_level", accessLevel);
 
-  return request<{ doc_id: string; status: string; filename: string }>("/documents/upload", {
+  return request<{ doc_id: string; status: string; filename: string }>("/api/documents/upload", {
     method: "POST",
     token,
     formData,

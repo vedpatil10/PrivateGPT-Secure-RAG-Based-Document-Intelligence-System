@@ -10,7 +10,7 @@ from models.database import Base
 from models import audit, document, user  # noqa: F401
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("+aiosqlite", ""))
+config.set_main_option("sqlalchemy.url", get_settings().sync_database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

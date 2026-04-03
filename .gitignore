@@ -58,7 +58,3 @@ htmlcov/
 
 # Streamlit
 .streamlit/secrets.toml
-
-# Alembic
-alembic/versions/*.py
-!alembic/versions/__init__.py

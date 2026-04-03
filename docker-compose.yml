@@ -10,6 +10,21 @@ services:
       - ./:/app
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://privategpt:privategpt@postgres:5432/privategpt
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    build: .
+    command: python scripts/run_worker.py
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://privategpt:privategpt@postgres:5432/privategpt
     depends_on:
       - postgres
       - redis
@@ -23,6 +38,8 @@ services:
       - ./:/app
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://privategpt:privategpt@postgres:5432/privategpt
     depends_on:
       - api
 

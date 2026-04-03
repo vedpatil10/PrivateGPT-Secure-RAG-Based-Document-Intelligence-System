@@ -52,13 +52,21 @@ python scripts/setup_db.py
 uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 6. Run the Streamlit MVP
+### 6. Run the ingestion worker
+
+```bash
+python scripts/run_worker.py
+```
+
+Queued documents are recovered from the database on startup, so uploads survive service restarts.
+
+### 7. Run the Streamlit MVP
 
 ```bash
 streamlit run streamlit_app/app.py
 ```
 
-### 7. Run the Next.js SaaS frontend scaffold
+### 8. Run the Next.js SaaS frontend scaffold
 
 ```bash
 cd frontend
@@ -79,6 +87,7 @@ The frontend targets `http://localhost:8000` by default. Override it with `NEXT_
 - Query, upload, delete, and source-level audit logging
 - Swappable local LLM providers for `llama_cpp`, `ollama`, and `huggingface`
 - Async ingestion pipeline with encrypted file persistence
+- Database-backed ingestion recovery for queued documents after restarts
 - Streamlit MVP for rapid internal usage
 - Next.js frontend scaffold for SaaS-style delivery
 - Docker, docker-compose, and Alembic scaffolding for production hardening
@@ -117,6 +126,7 @@ PrivateGPT/
 `docker-compose.yml` includes:
 
 - FastAPI API service
+- Standalone ingestion worker
 - Streamlit service
 - PostgreSQL
 - Redis

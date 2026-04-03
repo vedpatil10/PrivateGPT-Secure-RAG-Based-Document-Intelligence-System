@@ -16,11 +16,16 @@ class Base(DeclarativeBase):
 def get_engine():
     """Create the async database engine."""
     settings = get_settings()
-    return create_async_engine(
-        settings.database_url,
-        echo=settings.debug,
-        future=True,
-    )
+    engine_kwargs = {
+        "echo": settings.debug,
+        "future": True,
+    }
+
+    if not settings.database_url.startswith("sqlite"):
+        engine_kwargs["pool_size"] = settings.database_pool_size
+        engine_kwargs["max_overflow"] = settings.database_max_overflow
+
+    return create_async_engine(settings.database_url, **engine_kwargs)
 
 
 engine = get_engine()
