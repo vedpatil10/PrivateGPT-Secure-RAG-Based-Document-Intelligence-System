@@ -33,6 +33,8 @@ class TenantVectorStore:
     @property
     def index(self) -> faiss.Index:
         if self._index is None:
+            if self.dimension is None:
+                raise ValueError("Vector store dimension is not initialized")
             self._index = faiss.IndexFlatIP(self.dimension)  # Inner product (for normalized vectors = cosine)
         return self._index
 
@@ -182,6 +184,15 @@ class VectorStoreManager:
             self._stores[org_id] = store
         return self._stores[org_id]
 
+    def _ensure_dimension(self, store: TenantVectorStore, inferred_dimension: Optional[int] = None) -> None:
+        """Initialize the store dimension lazily when vectors first arrive."""
+        if store.dimension is None:
+            if inferred_dimension is None:
+                raise ValueError("Vector dimension must be provided before the store can be used")
+            store.dimension = inferred_dimension
+            if self.dimension is None:
+                self.dimension = inferred_dimension
+
     def add_vectors(
         self,
         org_id: str,
@@ -190,6 +201,8 @@ class VectorStoreManager:
     ) -> List[str]:
         """Add vectors to a tenant's index."""
         store = self._get_store(org_id)
+        inferred_dimension = int(vectors.shape[-1]) if len(vectors) else None
+        self._ensure_dimension(store, inferred_dimension)
         return store.add_vectors(vectors, metadatas)
 
     def search(
@@ -201,6 +214,8 @@ class VectorStoreManager:
     ) -> List[Tuple[Dict, float]]:
         """Search a tenant's index."""
         store = self._get_store(org_id)
+        inferred_dimension = int(query_vector.shape[-1]) if np.size(query_vector) else None
+        self._ensure_dimension(store, inferred_dimension)
         return store.search(query_vector, top_k, access_filter)
 
     def remove_vectors_by_doc(self, org_id: str, doc_id: str):

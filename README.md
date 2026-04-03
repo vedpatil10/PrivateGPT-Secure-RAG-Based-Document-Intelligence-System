@@ -76,6 +76,31 @@ npm run dev
 
 The frontend targets `http://localhost:8000` by default. Override it with `NEXT_PUBLIC_API_BASE_URL`.
 
+## Verification
+
+### Local verification on Windows
+
+Run:
+
+```powershell
+.\scripts\verify.ps1
+```
+
+This script exists specifically to solve the Windows Store Python limitation that can make
+`python` or `py` unusable from some shells. It:
+
+- finds a real Python installation instead of the WindowsApps shim
+- creates `.venv`
+- installs `requirements-ci.txt`
+- runs `pytest`
+
+If it reports that no usable interpreter was found, install Python 3.11 or 3.12 from
+python.org and disable the Windows App Execution Alias entries for `python` and `python3`.
+
+### GitHub verification
+
+Every push to `main` now triggers the workflow in [.github/workflows/ci.yml](/c:/Users/HP/OneDrive/Desktop/Projects/PrivateGPT/.github/workflows/ci.yml), which runs the test suite on GitHub Actions using Python 3.11.
+
 ---
 
 ## Features
@@ -91,6 +116,7 @@ The frontend targets `http://localhost:8000` by default. Override it with `NEXT_
 - Streamlit MVP for rapid internal usage
 - Next.js frontend scaffold for SaaS-style delivery
 - Docker, docker-compose, and Alembic scaffolding for production hardening
+- Local and GitHub-based verification workflows
 
 ---
 

@@ -522,6 +522,6 @@ def get_ingestion_pipeline() -> IngestionPipeline:
         from services.vector_store import get_vector_store
 
         embedding_service = get_embedding_service()
-        vector_store = get_vector_store(dimension=embedding_service.dimension)
+        vector_store = get_vector_store()
         _instance = IngestionPipeline(embedding_service, vector_store)
     return _instance
